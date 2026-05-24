@@ -3,9 +3,9 @@
   "name": "PlugChoice",
   "version": "1.0.0",
   "config_flow": true,
-  "documentation": "https://github.com/jeroen/hacs-plugchoice",
-  "issue_tracker": "https://github.com/jeroen/hacs-plugchoice/issues",
-  "codeowners": ["@jeroen"],
+  "documentation": "https://github.com/jerver/hacs-plugchoice",
+  "issue_tracker": "https://github.com/jerver/hacs-plugchoice/issues",
+  "codeowners": ["@jerver"],
   "requirements": [],
   "iot_class": "cloud_polling",
   "dependencies": []

@@ -21,7 +21,7 @@ HACS custom integration for [PlugChoice](https://plugchoice.com) EV charge point
 
 1. Open HACS → **Integrations**
 2. Click the three-dot menu → **Custom repositories**
-3. Add `https://github.com/jeroen/hacs-plugchoice` with category **Integration**
+3. Add `https://github.com/jerver/hacs-plugchoice` with category **Integration**
 4. Click **Download**
 5. Restart Home Assistant
 
