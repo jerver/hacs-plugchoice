@@ -1,0 +1,12 @@
+{
+  "domain": "plugchoice",
+  "name": "PlugChoice",
+  "version": "1.0.0",
+  "config_flow": true,
+  "documentation": "https://github.com/jeroen/hacs-plugchoice",
+  "issue_tracker": "https://github.com/jeroen/hacs-plugchoice/issues",
+  "codeowners": ["@jeroen"],
+  "requirements": [],
+  "iot_class": "cloud_polling",
+  "dependencies": []
+}

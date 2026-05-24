@@ -1,0 +1,29 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "PlugChoice – API Sleutel",
+        "description": "Voer je PlugChoice Personal Access Token in. Aanmaken kan via https://app.plugchoice.com/settings/personal-access-tokens.",
+        "data": {
+          "api_key": "API Sleutel"
+        }
+      },
+      "charger": {
+        "title": "PlugChoice – Kies Laadpaal",
+        "description": "Selecteer de laadpaal die je wilt monitoren en het standaard RFID-token waarmee laadsessies worden geautoriseerd.",
+        "data": {
+          "charger_uuid": "Laadpaal",
+          "token_id": "Standaard Token / RFID ID"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Ongeldige API sleutel. Controleer je Personal Access Token.",
+      "cannot_connect": "Kan geen verbinding maken met de PlugChoice API. Controleer je internetverbinding.",
+      "no_chargers": "Geen laadpalen gevonden voor deze API sleutel. Zorg dat er minimaal één laadpaal is gekoppeld aan je account."
+    },
+    "abort": {
+      "already_configured": "Deze laadpaal is al geconfigureerd."
+    }
+  }
+}

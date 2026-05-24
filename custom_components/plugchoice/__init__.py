@@ -1,0 +1,208 @@
+"""PlugChoice EV Charger integration for Home Assistant."""
+from __future__ import annotations
+
+import logging
+from datetime import timedelta
+
+import aiohttp
+import async_timeout
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+
+from .const import (
+    CONF_API_KEY,
+    CONF_CHARGER_UUID,
+    CONF_TOKEN_ID,
+    DOMAIN,
+    API_BASE_URL,
+    SCAN_INTERVAL_SECONDS,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BUTTON]
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up PlugChoice from a config entry."""
+    api_key = entry.data[CONF_API_KEY]
+    charger_uuid = entry.data[CONF_CHARGER_UUID]
+
+    session = async_get_clientsession(hass)
+    api = PlugChoiceAPI(session, api_key, charger_uuid)
+
+    # Validate credentials
+    try:
+        await api.get_charger()
+    except PlugChoiceAuthError as err:
+        raise ConfigEntryAuthFailed(err) from err
+    except PlugChoiceError as err:
+        raise ConfigEntryNotReady(err) from err
+
+    coordinator = PlugChoiceDataUpdateCoordinator(hass, api)
+    await coordinator.async_config_entry_first_refresh()
+
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "coordinator": coordinator,
+        "api": api,
+    }
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id)
+    return unload_ok
+
+
+class PlugChoiceDataUpdateCoordinator(DataUpdateCoordinator):
+    """Coordinator to fetch data from the PlugChoice API."""
+
+    def __init__(self, hass: HomeAssistant, api: "PlugChoiceAPI") -> None:
+        """Initialize."""
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=DOMAIN,
+            update_interval=timedelta(seconds=SCAN_INTERVAL_SECONDS),
+        )
+        self.api = api
+
+    async def _async_update_data(self) -> dict:
+        """Fetch data from the API."""
+        try:
+            charger = await self.api.get_charger()
+            active_transaction = await self.api.get_active_transaction()
+            total_kwh = await self.api.get_total_kwh()
+            meter_value = await self.api.get_latest_meter_value()
+            return {
+                "charger": charger,
+                "active_transaction": active_transaction,
+                "total_kwh": total_kwh,
+                "meter_value": meter_value,
+            }
+        except PlugChoiceAuthError as err:
+            raise ConfigEntryAuthFailed(err) from err
+        except PlugChoiceError as err:
+            raise UpdateFailed(f"Error communicating with PlugChoice API: {err}") from err
+
+
+class PlugChoiceError(Exception):
+    """Generic PlugChoice API error."""
+
+
+class PlugChoiceAuthError(PlugChoiceError):
+    """Authentication error."""
+
+
+class PlugChoiceAPI:
+    """Client for the PlugChoice REST API."""
+
+    def __init__(
+        self,
+        session: aiohttp.ClientSession,
+        api_key: str,
+        charger_uuid: str,
+    ) -> None:
+        """Initialize the API client."""
+        self._session = session
+        self._api_key = api_key
+        self._charger_uuid = charger_uuid
+        self._headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+
+    async def _request(
+        self, method: str, path: str, **kwargs
+    ) -> dict | list:
+        """Make an authenticated API request."""
+        url = f"{API_BASE_URL}{path}"
+        try:
+            async with async_timeout.timeout(15):
+                response = await self._session.request(
+                    method, url, headers=self._headers, **kwargs
+                )
+        except (aiohttp.ClientError, TimeoutError) as err:
+            raise PlugChoiceError(f"Request failed: {err}") from err
+
+        if response.status == 401:
+            raise PlugChoiceAuthError("Invalid API key")
+        if not response.ok:
+            text = await response.text()
+            raise PlugChoiceError(
+                f"API error {response.status}: {text[:200]}"
+            )
+
+        return await response.json()
+
+    async def get_charger(self) -> dict:
+        """Fetch charger details."""
+        return await self._request("GET", f"/chargers/{self._charger_uuid}")
+
+    async def get_active_transaction(self) -> dict | None:
+        """Fetch the current active transaction, if any."""
+        result = await self._request(
+            "GET",
+            f"/chargers/{self._charger_uuid}/transactions",
+            params={"filter[status]": "active", "limit": 1},
+        )
+        transactions = result if isinstance(result, list) else result.get("data", [])
+        return transactions[0] if transactions else None
+
+    async def get_total_kwh(self) -> float:
+        """Return the sum of kWh across all finished transactions for this charger."""
+        result = await self._request(
+            "GET",
+            f"/chargers/{self._charger_uuid}/transactions",
+            params={"filter[status]": "finished", "limit": 10000},
+        )
+        transactions = result if isinstance(result, list) else result.get("data", [])
+        return sum(float(t.get("total_kwh") or 0) for t in transactions)
+
+    async def get_latest_meter_value(self) -> dict | None:
+        """Fetch the latest meter value from connector 1."""
+        try:
+            return await self._request(
+                "GET",
+                f"/chargers/{self._charger_uuid}/connectors/1/meter-value/latest",
+            )
+        except PlugChoiceError:
+            return None
+
+    async def list_chargers(self) -> list[dict]:
+        """List all chargers accessible with the current API key."""
+        result = await self._request("GET", "/chargers")
+        return result if isinstance(result, list) else result.get("data", [])
+
+    async def start_charging(self, token_id: str, connector_id: int | None = None) -> dict:
+        """Send a remote start transaction command."""
+        payload: dict = {"id_token": token_id}
+        if connector_id is not None:
+            payload["connector_id"] = connector_id
+        return await self._request(
+            "POST",
+            f"/chargers/{self._charger_uuid}/actions/remote-start",
+            json=payload,
+        )
+
+    async def stop_charging(self, transaction_id: int | None = None) -> dict:
+        """Send a remote stop transaction command."""
+        payload: dict = {}
+        if transaction_id is not None:
+            payload["transaction_id"] = transaction_id
+        return await self._request(
+            "POST",
+            f"/chargers/{self._charger_uuid}/actions/remote-stop",
+            json=payload,
+        )
