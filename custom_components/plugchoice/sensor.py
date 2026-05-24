@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -70,6 +71,23 @@ SENSOR_DESCRIPTIONS: tuple[PlugChoiceSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.POWER,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:flash",
+    ),
+    PlugChoiceSensorEntityDescription(
+        key="last_session_starttime",
+        name="Last Session Start Time",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        icon="mdi:clock-start",
+    ),
+    PlugChoiceSensorEntityDescription(
+        key="last_session_endtime",
+        name="Last Session End Time",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        icon="mdi:clock-end",
+    ),
+    PlugChoiceSensorEntityDescription(
+        key="last_session_stop_reason",
+        name="Last Session Stop Reason",
+        icon="mdi:information-outline",
     ),
 )
 
@@ -142,9 +160,12 @@ class PlugChoiceSensor(CoordinatorEntity[PlugChoiceDataUpdateCoordinator], Senso
                 connectors[0] if connectors else None,
             )
             if key == "status":
-                if matched is not None and matched.get("status") is not None:
-                    return matched["status"]
-                return charger.get("status")
+                raw = (
+                    matched["status"]
+                    if matched is not None and matched.get("status") is not None
+                    else charger.get("status")
+                )
+                return _map_status(raw)
             if key == "connector_error":
                 if matched is not None:
                     return matched.get("error")
@@ -175,7 +196,27 @@ class PlugChoiceSensor(CoordinatorEntity[PlugChoiceDataUpdateCoordinator], Senso
                 return round(watts / 1000, 3)
             return 0.0
 
+        last_session = data.get("last_session")
+
+        if key == "last_session_starttime":
+            return _parse_timestamp(last_session.get("started_at") if last_session else None)
+
+        if key == "last_session_endtime":
+            return _parse_timestamp(last_session.get("stopped_at") if last_session else None)
+
+        if key == "last_session_stop_reason":
+            return last_session.get("stop_reason") if last_session else None
+
         return None
+
+
+def _map_status(status: str | None) -> str | None:
+    """Map raw OCPP status values to human-friendly labels."""
+    if status == "SuspendedEV":
+        return "Waiting for car"
+    if status == "SuspendedEVSE":
+        return "Waiting for power"
+    return status
 
 
 def _extract_energy_wh(meter_value: dict | None) -> float | None:
@@ -208,3 +249,16 @@ def _extract_power_w(meter_value: dict | None) -> float | None:
                 except (KeyError, ValueError):
                     pass
     return None
+
+
+def _parse_timestamp(value: str | None) -> datetime | None:
+    """Parse an ISO8601 timestamp string into a timezone-aware datetime."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return None

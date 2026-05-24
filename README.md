@@ -2,44 +2,62 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 
-HACS custom integration for [PlugChoice](https://plugchoice.com) EV charge point management.
+HACS custom integration voor [PlugChoice](https://plugchoice.com) EV-laadpaalbeheer.
 
-## Features
+## Entiteiten
 
-| Entity | Type | Description |
+### Sensoren
+
+| Entiteit | Beschrijving |
+|---|---|
+| Connection Status | Verbindingsstatus van de lader (online/offline) |
+| Charger Error | Foutcode op laadpaal-niveau |
+| Status | OCPP-status van de geselecteerde connector |
+| Connector Error | Foutcode op connector-niveau |
+| Total Energy | Totaal verbruikte kWh over alle afgeronde sessies |
+| Session Energy | kWh verbruikt in de huidige actieve sessie |
+| Charging Power | Actueel laadvermogen in kW |
+
+### Knoppen
+
+| Entiteit | Beschrijving |
+|---|---|
+| Start Charging | Stuur een remote-start opdracht |
+| Stop Charging | Stuur een remote-stop opdracht |
+
+## Installatie
+
+### Via HACS (aanbevolen)
+
+1. Open HACS → **Integraties**
+2. Klik op het driepuntenmenu → **Aangepaste opslagplaatsen**
+3. Voeg `https://github.com/jerver/hacs-plugchoice` toe met categorie **Integratie**
+4. Klik op **Downloaden**
+5. Herstart Home Assistant
+
+### Handmatig
+
+Kopieer de map `custom_components/plugchoice/` naar `<config>/custom_components/` en herstart Home Assistant.
+
+## Configuratie
+
+1. Ga naar **Instellingen → Apparaten & Diensten → Integratie toevoegen** en zoek op *PlugChoice*.
+2. Voer je **Personal Access Token** in (aanmaken via [accountinstellingen](https://app.plugchoice.com/settings/personal-access-tokens)).
+3. Selecteer de **laadpaal** die je wilt monitoren.
+4. Voer de **standaard RFID-token ID** in voor het autoriseren van laadsessies (vereist voor remote starten).
+
+### Opties (via Configureren)
+
+Na de eerste installatie zijn aanvullende opties beschikbaar via **Configureren**:
+
+| Optie | Standaard | Omschrijving |
 |---|---|---|
-| Status | Sensor | Current OCPP status of the charger/connector |
-| Total Energy | Sensor | Total kWh across all finished sessions |
-| Session Energy | Sensor | kWh consumed in the current active session |
-| Charging Power | Sensor | Live charging power in kW |
-| Start Charging | Button | Send a remote start command |
-| Stop Charging | Button | Send a remote stop command |
-
-## Installation
-
-### Via HACS (recommended)
-
-1. Open HACS → **Integrations**
-2. Click the three-dot menu → **Custom repositories**
-3. Add `https://github.com/jerver/hacs-plugchoice` with category **Integration**
-4. Click **Download**
-5. Restart Home Assistant
-
-### Manual
-
-Copy `custom_components/plugchoice/` into your `<config>/custom_components/` directory and restart Home Assistant.
-
-## Configuration
-
-1. Go to **Settings → Devices & Services → Add Integration** and search for *PlugChoice*.
-2. Enter your **Personal Access Token** (generate one at [account settings](https://app.plugchoice.com/settings/personal-access-tokens)).
-3. Select the **charger** you want to monitor.
-4. Enter the **default RFID token ID** used to authorise charging sessions (required to start charging remotely).
+| Polling interval | 30 s | Hoe vaak de API wordt geraadpleegd (10–3600 s) |
+| Connector ID | 1 | OCPP connector-nummer waarvan status en fout worden getoond |
 
 ## API
 
-This integration uses the [PlugChoice REST API v3](https://developer.plugchoice.com).
+Deze integratie gebruikt de [PlugChoice REST API v3](https://developer.plugchoice.com).
 
-- Base URL: `https://app.plugchoice.com/api/v3`
-- Auth: Bearer token (Personal Access Token)
-- Poll interval: 30 seconds
+- Basis-URL: `https://app.plugchoice.com/api/v3`
+- Authenticatie: Bearer token (Personal Access Token)

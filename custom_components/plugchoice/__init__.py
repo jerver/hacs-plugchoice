@@ -26,7 +26,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BUTTON]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BUTTON, Platform.BINARY_SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -95,11 +95,13 @@ class PlugChoiceDataUpdateCoordinator(DataUpdateCoordinator):
             active_transaction = await self.api.get_active_transaction()
             total_kwh = await self.api.get_total_kwh()
             meter_value = await self.api.get_latest_meter_value()
+            last_session = await self.api.get_last_session()
             return {
                 "charger": charger,
                 "active_transaction": active_transaction,
                 "total_kwh": total_kwh,
                 "meter_value": meter_value,
+                "last_session": last_session,
             }
         except PlugChoiceAuthError as err:
             raise ConfigEntryAuthFailed(err) from err
@@ -207,6 +209,16 @@ class PlugChoiceAPI:
             f"/chargers/{self._charger_uuid}/actions/start",
             json=payload,
         )
+
+    async def get_last_session(self) -> dict | None:
+        """Fetch the most recent transaction (active or finished)."""
+        result = await self._request(
+            "GET",
+            f"/chargers/{self._charger_uuid}/transactions",
+            params={"limit": 1, "sort": "-started_at"},
+        )
+        transactions = result if isinstance(result, list) else result.get("data", [])
+        return transactions[0] if transactions else None
 
     async def stop_charging(self, transaction_id: int | None = None) -> dict:
         """Send a remote stop transaction command."""
