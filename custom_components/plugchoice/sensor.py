@@ -28,9 +28,24 @@ class PlugChoiceSensorEntityDescription(SensorEntityDescription):
 
 SENSOR_DESCRIPTIONS: tuple[PlugChoiceSensorEntityDescription, ...] = (
     PlugChoiceSensorEntityDescription(
+        key="connection_status",
+        name="Connection Status",
+        icon="mdi:connection",
+    ),
+    PlugChoiceSensorEntityDescription(
+        key="charger_error",
+        name="Charger Error",
+        icon="mdi:alert-circle-outline",
+    ),
+    PlugChoiceSensorEntityDescription(
         key="status",
         name="Status",
         icon="mdi:ev-station",
+    ),
+    PlugChoiceSensorEntityDescription(
+        key="connector_error",
+        name="Connector Error",
+        icon="mdi:alert-outline",
     ),
     PlugChoiceSensorEntityDescription(
         key="total_kwh",
@@ -108,9 +123,15 @@ class PlugChoiceSensor(CoordinatorEntity[PlugChoiceDataUpdateCoordinator], Senso
             return None
 
         key = self.entity_description.key
+        charger = data.get("charger", {})
 
-        if key == "status":
-            charger = data.get("charger", {})
+        if key == "connection_status":
+            return charger.get("connection_status")
+
+        if key == "charger_error":
+            return charger.get("error")
+
+        if key in ("status", "connector_error"):
             connectors = charger.get("connectors") or []
             target_id = int(
                 self._entry.options.get(CONF_CONNECTOR_ID, DEFAULT_CONNECTOR_ID)
@@ -120,9 +141,14 @@ class PlugChoiceSensor(CoordinatorEntity[PlugChoiceDataUpdateCoordinator], Senso
                 (c for c in connectors if c.get("connector_id") == target_id),
                 connectors[0] if connectors else None,
             )
-            if matched is not None and matched.get("status") is not None:
-                return matched["status"]
-            return charger.get("status")
+            if key == "status":
+                if matched is not None and matched.get("status") is not None:
+                    return matched["status"]
+                return charger.get("status")
+            if key == "connector_error":
+                if matched is not None:
+                    return matched.get("error")
+                return None
 
         if key == "total_kwh":
             return data.get("total_kwh")
