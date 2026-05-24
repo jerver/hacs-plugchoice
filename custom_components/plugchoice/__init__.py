@@ -159,7 +159,8 @@ class PlugChoiceAPI:
 
     async def get_charger(self) -> dict:
         """Fetch charger details."""
-        return await self._request("GET", f"/chargers/{self._charger_uuid}")
+        result = await self._request("GET", f"/chargers/{self._charger_uuid}")
+        return result.get("data", result) if isinstance(result, dict) else result
 
     async def get_active_transaction(self) -> dict | None:
         """Fetch the current active transaction, if any."""
