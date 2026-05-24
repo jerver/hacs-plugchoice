@@ -31,7 +31,8 @@
       "init": {
         "title": "PlugChoice – Options",
         "data": {
-          "scan_interval": "Poll interval (seconds)"
+          "scan_interval": "Poll interval (seconds)",
+          "connector_id": "Connector ID"
         }
       }
     }

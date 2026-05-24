@@ -203,7 +203,7 @@ class PlugChoiceAPI:
             payload["connector_id"] = connector_id
         return await self._request(
             "POST",
-            f"/chargers/{self._charger_uuid}/actions/remote-start",
+            f"/chargers/{self._charger_uuid}/actions/start",
             json=payload,
         )
 
@@ -214,6 +214,6 @@ class PlugChoiceAPI:
             payload["transaction_id"] = transaction_id
         return await self._request(
             "POST",
-            f"/chargers/{self._charger_uuid}/actions/remote-stop",
+            f"/chargers/{self._charger_uuid}/actions/stop",
             json=payload,
         )

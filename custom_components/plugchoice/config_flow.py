@@ -25,8 +25,10 @@ from homeassistant.helpers.selector import (
 from .const import (
     CONF_API_KEY,
     CONF_CHARGER_UUID,
+    CONF_CONNECTOR_ID,
     CONF_SCAN_INTERVAL,
     CONF_TOKEN_ID,
+    DEFAULT_CONNECTOR_ID,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     MAX_SCAN_INTERVAL,
@@ -169,6 +171,9 @@ class PlugChoiceOptionsFlowHandler(OptionsFlow):
         current_interval = self._config_entry.options.get(
             CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
         )
+        current_connector = self._config_entry.options.get(
+            CONF_CONNECTOR_ID, DEFAULT_CONNECTOR_ID
+        )
 
         return self.async_show_form(
             step_id="init",
@@ -182,6 +187,16 @@ class PlugChoiceOptionsFlowHandler(OptionsFlow):
                             max=MAX_SCAN_INTERVAL,
                             step=1,
                             unit_of_measurement="seconds",
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_CONNECTOR_ID, default=current_connector
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=1,
+                            max=8,
+                            step=1,
                             mode=NumberSelectorMode.BOX,
                         )
                     ),

@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_TOKEN_ID, DOMAIN
+from .const import CONF_CONNECTOR_ID, CONF_TOKEN_ID, DEFAULT_CONNECTOR_ID, DOMAIN
 from . import PlugChoiceAPI, PlugChoiceDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -62,6 +62,7 @@ class PlugChoiceButton(ButtonEntity):
         self._coordinator = coordinator
         self._api = api
         self._token_id: str = entry.data[CONF_TOKEN_ID]
+        self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
         charger_uuid = entry.data["charger_uuid"]
         self._attr_device_info = DeviceInfo(
@@ -74,7 +75,12 @@ class PlugChoiceButton(ButtonEntity):
     async def async_press(self) -> None:
         """Handle button press."""
         if self.entity_description.key == "start_charging":
-            result = await self._api.start_charging(token_id=self._token_id)
+            connector_id = int(
+                self._entry.options.get(CONF_CONNECTOR_ID, DEFAULT_CONNECTOR_ID)
+            )
+            result = await self._api.start_charging(
+                token_id=self._token_id, connector_id=connector_id
+            )
             _LOGGER.info("Start charging response: %s", result)
         else:
             # Attempt to stop the active transaction

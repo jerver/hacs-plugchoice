@@ -17,7 +17,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import CONF_CONNECTOR_ID, DEFAULT_CONNECTOR_ID, DOMAIN
 from . import PlugChoiceDataUpdateCoordinator
 
 
@@ -90,6 +90,7 @@ class PlugChoiceSensor(CoordinatorEntity[PlugChoiceDataUpdateCoordinator], Senso
         """Initialize the sensor."""
         super().__init__(coordinator)
         self.entity_description = description
+        self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
         charger_uuid = entry.data["charger_uuid"]
         self._attr_device_info = DeviceInfo(
@@ -110,10 +111,17 @@ class PlugChoiceSensor(CoordinatorEntity[PlugChoiceDataUpdateCoordinator], Senso
 
         if key == "status":
             charger = data.get("charger", {})
-            # Prefer connector status when available
-            connectors = charger.get("connectors", [])
-            if connectors:
-                return connectors[0].get("status") or charger.get("status")
+            connectors = charger.get("connectors") or []
+            target_id = int(
+                self._entry.options.get(CONF_CONNECTOR_ID, DEFAULT_CONNECTOR_ID)
+            )
+            # Match by OCPP connector_id; fall back to first connector, then charger
+            matched = next(
+                (c for c in connectors if c.get("connector_id") == target_id),
+                connectors[0] if connectors else None,
+            )
+            if matched is not None and matched.get("status") is not None:
+                return matched["status"]
             return charger.get("status")
 
         if key == "total_kwh":
