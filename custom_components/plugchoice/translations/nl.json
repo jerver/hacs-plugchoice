@@ -25,5 +25,15 @@
     "abort": {
       "already_configured": "Deze laadpaal is al geconfigureerd."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "PlugChoice – Opties",
+        "data": {
+          "scan_interval": "Poll-interval (seconden)"
+        }
+      }
+    }
   }
 }

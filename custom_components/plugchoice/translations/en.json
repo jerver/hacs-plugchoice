@@ -25,5 +25,15 @@
     "abort": {
       "already_configured": "This charger is already configured."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "PlugChoice – Options",
+        "data": {
+          "scan_interval": "Poll interval (seconds)"
+        }
+      }
+    }
   }
 }

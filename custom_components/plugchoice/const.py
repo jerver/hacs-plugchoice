@@ -8,4 +8,7 @@ CONF_TOKEN_ID = "token_id"
 
 API_BASE_URL = "https://app.plugchoice.com/api/v3"
 
-SCAN_INTERVAL_SECONDS = 30
+CONF_SCAN_INTERVAL = "scan_interval"
+DEFAULT_SCAN_INTERVAL = 30
+MIN_SCAN_INTERVAL = 10
+MAX_SCAN_INTERVAL = 3600

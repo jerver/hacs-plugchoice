@@ -7,9 +7,12 @@ from typing import Any
 import aiohttp
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
@@ -19,7 +22,16 @@ from homeassistant.helpers.selector import (
     TextSelectorType,
 )
 
-from .const import CONF_API_KEY, CONF_CHARGER_UUID, CONF_TOKEN_ID, DOMAIN
+from .const import (
+    CONF_API_KEY,
+    CONF_CHARGER_UUID,
+    CONF_SCAN_INTERVAL,
+    CONF_TOKEN_ID,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    MAX_SCAN_INTERVAL,
+    MIN_SCAN_INTERVAL,
+)
 from . import PlugChoiceAPI, PlugChoiceAuthError, PlugChoiceError
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,6 +41,11 @@ class PlugChoiceConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for PlugChoice."""
 
     VERSION = 1
+
+    @staticmethod
+    def async_get_options_flow(config_entry: ConfigEntry) -> "PlugChoiceOptionsFlowHandler":
+        """Return the options flow handler."""
+        return PlugChoiceOptionsFlowHandler(config_entry)
 
     def __init__(self) -> None:
         """Initialize the config flow."""
@@ -132,4 +149,42 @@ class PlugChoiceConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders={
                 "token_help": "Enter the RFID token/card ID used to authorize charging sessions."
             },
+        )
+
+
+class PlugChoiceOptionsFlowHandler(OptionsFlow):
+    """Handle PlugChoice options (settings that can be changed after setup)."""
+
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        """Initialize."""
+        self._config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        current_interval = self._config_entry.options.get(
+            CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
+        )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_SCAN_INTERVAL, default=current_interval
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=MIN_SCAN_INTERVAL,
+                            max=MAX_SCAN_INTERVAL,
+                            step=1,
+                            unit_of_measurement="seconds",
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                }
+            ),
         )

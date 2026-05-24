@@ -17,10 +17,11 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import (
     CONF_API_KEY,
     CONF_CHARGER_UUID,
+    CONF_SCAN_INTERVAL,
     CONF_TOKEN_ID,
+    DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     API_BASE_URL,
-    SCAN_INTERVAL_SECONDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except PlugChoiceError as err:
         raise ConfigEntryNotReady(err) from err
 
-    coordinator = PlugChoiceDataUpdateCoordinator(hass, api)
+    coordinator = PlugChoiceDataUpdateCoordinator(hass, entry, api)
     await coordinator.async_config_entry_first_refresh()
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
@@ -53,7 +54,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the entry when options change."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -67,13 +75,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 class PlugChoiceDataUpdateCoordinator(DataUpdateCoordinator):
     """Coordinator to fetch data from the PlugChoice API."""
 
-    def __init__(self, hass: HomeAssistant, api: "PlugChoiceAPI") -> None:
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, api: "PlugChoiceAPI"
+    ) -> None:
         """Initialize."""
+        interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=SCAN_INTERVAL_SECONDS),
+            update_interval=timedelta(seconds=interval),
         )
         self.api = api
 
