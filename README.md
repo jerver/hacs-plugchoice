@@ -17,6 +17,15 @@ HACS custom integration voor [PlugChoice](https://plugchoice.com) EV-laadpaalbeh
 | Total Energy | Totaal verbruikte kWh over alle afgeronde sessies |
 | Session Energy | kWh verbruikt in de huidige actieve sessie |
 | Charging Power | Actueel laadvermogen in kW |
+| Last Session Start Time | Starttijdstip van de laatste laadsessie |
+| Last Session End Time | Eindtijdstip van de laatste laadsessie |
+| Last Session Stop Reason | Reden waarom de laatste sessie is gestopt |
+
+### Binaire sensoren
+
+| Entiteit | Beschrijving |
+|---|---|
+| Active | `aan` wanneer er een actieve laadsessie loopt |
 
 ### Knoppen
 
@@ -24,6 +33,20 @@ HACS custom integration voor [PlugChoice](https://plugchoice.com) EV-laadpaalbeh
 |---|---|
 | Start Charging | Stuur een remote-start opdracht |
 | Stop Charging | Stuur een remote-stop opdracht |
+
+### Schakelaars
+
+| Entiteit | Beschrijving |
+|---|---|
+| Uitgesteld laden actief | Schakel uitgesteld laden in of uit |
+
+### Tijdinstellingen
+
+| Entiteit | Standaard | Beschrijving |
+|---|---|---|
+| Starttijd uitgesteld laden | 22:00 | Tijdstip waarop het laden automatisch mag starten |
+
+> De schakelaar en starttijd worden lokaal opgeslagen en hersteld na een herstart van Home Assistant. Gebruik ze in een automatisering om op een gewenst tijdstip de knop **Start Charging** te activeren.
 
 ## Installatie
 
@@ -54,6 +77,23 @@ Na de eerste installatie zijn aanvullende opties beschikbaar via **Configureren*
 |---|---|---|
 | Polling interval | 30 s | Hoe vaak de API wordt geraadpleegd (10–3600 s) |
 | Connector ID | 1 | OCPP connector-nummer waarvan status en fout worden getoond |
+
+## Voorbeeldautomatisering: uitgesteld laden
+
+```yaml
+alias: "PlugChoice – start laden op ingestelde tijd"
+trigger:
+  - platform: time
+    at: sensor.plugchoice_starttijd_uitgesteld_laden
+condition:
+  - condition: state
+    entity_id: switch.plugchoice_uitgesteld_laden_actief
+    state: "on"
+action:
+  - action: button.press
+    target:
+      entity_id: button.plugchoice_start_charging
+```
 
 ## API
 
