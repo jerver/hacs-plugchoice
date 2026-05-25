@@ -176,11 +176,14 @@ class PlugChoiceAPI:
     async def get_latest_meter_value(self) -> dict | None:
         """Fetch the latest meter value from connector 1."""
         try:
-            return await self._request(
+            result = await self._request(
                 "GET",
                 f"/chargers/{self._charger_uuid}/connectors/1/latest-metervalue",
             )
-        except PlugChoiceError:
+            _LOGGER.debug("latest-metervalue response: %s", result)
+            return result
+        except PlugChoiceError as err:
+            _LOGGER.warning("Failed to fetch latest meter value: %s", err)
             return None
 
     async def get_power_usage(self) -> dict | None:
