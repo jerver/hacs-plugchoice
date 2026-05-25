@@ -233,7 +233,8 @@ def _extract_energy_wh(meter_value: dict | None) -> float | None:
         return None
     for entry in meter_value.get("meterValue", []):
         for sv in entry.get("sampledValue", []):
-            if sv.get("measurand") == "Energy.Active.Import.Register":
+            measurand = sv.get("measurand") or "Energy.Active.Import.Register"
+            if measurand == "Energy.Active.Import.Register":
                 try:
                     raw = float(sv["value"])
                     unit = sv.get("unit", "Wh")
