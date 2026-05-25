@@ -181,24 +181,23 @@ class PlugChoiceSensor(CoordinatorEntity[PlugChoiceDataUpdateCoordinator], Senso
                 return None
 
         if key == "total_kwh":
-            return data.get("total_kwh")
+            meter_value = data.get("meter_value")
+            wh = _extract_energy_wh(meter_value)
+            return round(wh / 1000, 3) if wh is not None else None
 
         if key == "session_kwh":
             tx = data.get("active_transaction")
             if tx is None:
                 return 0.0
-            meter_start = tx.get("meter_start") or 0
-            meter_stop = tx.get("meter_stop")
-            if meter_stop is not None:
-                return round((meter_stop - meter_start) / 1000, 3)
-            # Active session — estimate from latest meter value
-            meter_value = data.get("meter_value")
-            live_wh = _extract_energy_wh(meter_value)
-            if live_wh is not None:
-                return round((live_wh - meter_start) / 1000, 3)
             return round(float(tx.get("total_kwh") or 0), 3)
 
         if key == "charging_kwh":
+            power_usage = data.get("power_usage")
+            if power_usage:
+                try:
+                    return round(float(power_usage["kW"]), 3)
+                except (KeyError, ValueError, TypeError):
+                    pass
             meter_value = data.get("meter_value")
             watts = _extract_power_w(meter_value)
             if watts is not None:

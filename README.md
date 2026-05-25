@@ -14,9 +14,9 @@ HACS custom integration voor [PlugChoice](https://plugchoice.com) EV-laadpaalbeh
 | Charger Error | Foutcode op laadpaal-niveau |
 | Status | OCPP-status van de geselecteerde connector |
 | Connector Error | Foutcode op connector-niveau |
-| Total Energy | Totaal verbruikte kWh over alle afgeronde sessies |
-| Session Energy | kWh verbruikt in de huidige actieve sessie |
-| Charging Power | Actueel laadvermogen in kW |
+| Total Energy | Totaal verbruikte kWh volgens de energiemeter van de lader (Energy.Active.Import.Register) |
+| Session Energy | kWh verbruikt in de huidige actieve sessie (uit lopende transactie) |
+| Charging Power | Actueel laadvermogen in kW (real-time meting) |
 | Last Session Start Time | Starttijdstip van de laatste laadsessie |
 | Last Session End Time | Eindtijdstip van de laatste laadsessie |
 | Last Session Stop Reason | Reden waarom de laatste sessie is gestopt |

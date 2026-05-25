@@ -18,7 +18,6 @@ from .const import (
     CONF_API_KEY,
     CONF_CHARGER_UUID,
     CONF_SCAN_INTERVAL,
-    CONF_TOKEN_ID,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     API_BASE_URL,
@@ -93,14 +92,14 @@ class PlugChoiceDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             charger = await self.api.get_charger()
             active_transaction = await self.api.get_active_transaction()
-            total_kwh = await self.api.get_total_kwh()
             meter_value = await self.api.get_latest_meter_value()
+            power_usage = await self.api.get_power_usage()
             last_session = await self.api.get_last_session()
             return {
                 "charger": charger,
                 "active_transaction": active_transaction,
-                "total_kwh": total_kwh,
                 "meter_value": meter_value,
+                "power_usage": power_usage,
                 "last_session": last_session,
             }
         except PlugChoiceAuthError as err:
@@ -174,22 +173,22 @@ class PlugChoiceAPI:
         transactions = result if isinstance(result, list) else result.get("data", [])
         return transactions[0] if transactions else None
 
-    async def get_total_kwh(self) -> float:
-        """Return the sum of kWh across all finished transactions for this charger."""
-        result = await self._request(
-            "GET",
-            f"/chargers/{self._charger_uuid}/transactions",
-            params={"filter[status]": "finished", "limit": 10000},
-        )
-        transactions = result if isinstance(result, list) else result.get("data", [])
-        return sum(float(t.get("total_kwh") or 0) for t in transactions)
-
     async def get_latest_meter_value(self) -> dict | None:
         """Fetch the latest meter value from connector 1."""
         try:
             return await self._request(
                 "GET",
                 f"/chargers/{self._charger_uuid}/connectors/1/meter-value/latest",
+            )
+        except PlugChoiceError:
+            return None
+
+    async def get_power_usage(self) -> dict | None:
+        """Fetch real-time power usage for connector 1."""
+        try:
+            return await self._request(
+                "GET",
+                f"/chargers/{self._charger_uuid}/connectors/1/power-usage",
             )
         except PlugChoiceError:
             return None
