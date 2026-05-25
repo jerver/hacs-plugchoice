@@ -178,7 +178,7 @@ class PlugChoiceAPI:
         try:
             return await self._request(
                 "GET",
-                f"/chargers/{self._charger_uuid}/connectors/1/meter-value/latest",
+                f"/chargers/{self._charger_uuid}/connectors/1/latest-metervalue",
             )
         except PlugChoiceError:
             return None
