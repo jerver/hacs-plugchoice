@@ -1,8 +1,9 @@
 """Sensor platform for PlugChoice."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, time as dt_time, timedelta, timezone
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -13,10 +14,13 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_point_in_time, async_track_state_change_event
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import CONF_CONNECTOR_ID, DEFAULT_CONNECTOR_ID, DOMAIN
 from . import PlugChoiceDataUpdateCoordinator
@@ -103,8 +107,13 @@ async def async_setup_entry(
     ]
 
     async_add_entities(
-        PlugChoiceSensor(coordinator, entry, description)
-        for description in SENSOR_DESCRIPTIONS
+        [
+            *[
+                PlugChoiceSensor(coordinator, entry, description)
+                for description in SENSOR_DESCRIPTIONS
+            ],
+            PlugChoiceDelayedChargingTimestampSensor(entry),
+        ]
     )
 
 
@@ -262,3 +271,101 @@ def _parse_timestamp(value: str | None) -> datetime | None:
         return dt
     except (ValueError, TypeError):
         return None
+
+
+class PlugChoiceDelayedChargingTimestampSensor(SensorEntity):
+    """Sensor exposing the next occurrence of the delayed charging start time as a timestamp.
+
+    This sensor has device_class TIMESTAMP so it can be used directly in an
+    automation time trigger via ``at: sensor.plugchoice_starttijd_uitgesteld_laden``.
+    After each occurrence fires it automatically rolls over to the following day.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Starttijd uitgesteld laden"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:clock-time-eight"
+    _attr_should_poll = False
+
+    def __init__(self, entry: ConfigEntry) -> None:
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_starttijd_uitgesteld_laden_ts"
+        charger_uuid = entry.data["charger_uuid"]
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, charger_uuid)},
+            name=entry.title,
+            manufacturer="PlugChoice",
+            model="EV Charger",
+        )
+        self._next_occurrence: datetime | None = None
+        self._cancel_refresh: Callable[[], None] | None = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(self._cancel_pending_refresh)
+        time_entity_id = self._get_time_entity_id()
+        if time_entity_id:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [time_entity_id], self._handle_time_entity_change
+                )
+            )
+            state = self.hass.states.get(time_entity_id)
+            if state and state.state not in ("unknown", "unavailable"):
+                self._compute_and_schedule(state.state)
+
+    def _get_time_entity_id(self) -> str | None:
+        """Look up the companion time entity via the entity registry."""
+        registry = er.async_get(self.hass)
+        return registry.async_get_entity_id(
+            "time", DOMAIN, f"{self._entry.entry_id}_starttijd_uitgesteld_laden"
+        )
+
+    @callback
+    def _handle_time_entity_change(self, event: Any) -> None:
+        new_state = event.data.get("new_state")
+        if new_state and new_state.state not in ("unknown", "unavailable"):
+            self._compute_and_schedule(new_state.state)
+            self.async_write_ha_state()
+
+    def _compute_and_schedule(self, time_state: str) -> None:
+        """Compute the next occurrence datetime and schedule a roll-over refresh."""
+        try:
+            t = dt_time.fromisoformat(time_state)
+        except ValueError:
+            return
+        now = dt_util.now()
+        candidate = datetime.combine(now.date(), t, tzinfo=now.tzinfo)
+        if candidate <= now:
+            candidate += timedelta(days=1)
+        self._next_occurrence = candidate
+        self._schedule_refresh(candidate)
+
+    def _schedule_refresh(self, occurrence: datetime) -> None:
+        """Schedule a state update 2 s after the occurrence so the trigger rolls over."""
+        if self._cancel_refresh is not None:
+            self._cancel_refresh()
+        refresh_at = occurrence + timedelta(seconds=2)
+
+        @callback
+        def _do_refresh(_now: datetime) -> None:
+            self._cancel_refresh = None
+            time_entity_id = self._get_time_entity_id()
+            if time_entity_id:
+                state = self.hass.states.get(time_entity_id)
+                if state and state.state not in ("unknown", "unavailable"):
+                    self._compute_and_schedule(state.state)
+            self.async_write_ha_state()
+
+        self._cancel_refresh = async_track_point_in_time(
+            self.hass, _do_refresh, refresh_at
+        )
+
+    def _cancel_pending_refresh(self) -> None:
+        if self._cancel_refresh is not None:
+            self._cancel_refresh()
+            self._cancel_refresh = None
+
+    @property
+    def native_value(self) -> datetime | None:
+        return self._next_occurrence
