@@ -53,7 +53,7 @@ HACS custom integration voor [PlugChoice](https://plugchoice.com) EV-laadpaalbeh
 ### Via HACS (aanbevolen)
 
 1. Open HACS → **Integraties**
-2. Klik op het driepuntenmenu → **Aangepaste opslagplaatsen**
+2. Klik op het driepuntenmenu → **Aangepaste repositories**
 3. Voeg `https://github.com/jerver/hacs-plugchoice` toe met categorie **Integratie**
 4. Klik op **Downloaden**
 5. Herstart Home Assistant
