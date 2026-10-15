@@ -27,12 +27,21 @@
     }
   },
   "options": {
+    "error": {
+      "invalid_input": "Vul een positieve waarde en een deadline in de toekomst in."
+    },
     "step": {
       "init": {
         "title": "PlugChoice – Opties",
         "data": {
           "scan_interval": "Poll-interval (seconden)",
-          "connector_id": "Connector ID"
+          "connector_id": "Connector ID",
+          "distance_km": "Gewenste afstand (km)",
+          "efficiency_km_per_kwh": "Verbruik auto (km/kWh)",
+          "charging_deadline": "Uiterste laadtijd",
+          "direct_charging": "Direct laden",
+          "min_solar_kwh": "Minimale zonneproductie per uur (kWh)",
+          "test_mode": "Testmodus (blokkeer alle PlugChoice API-verzoeken)"
         }
       }
     }

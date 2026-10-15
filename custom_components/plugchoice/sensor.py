@@ -24,6 +24,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import CONF_CONNECTOR_ID, DEFAULT_CONNECTOR_ID, DOMAIN
 from . import PlugChoiceDataUpdateCoordinator
+from .charging import ChargingScheduleManager
 
 
 @dataclass(frozen=True)
@@ -113,6 +114,7 @@ async def async_setup_entry(
                 for description in SENSOR_DESCRIPTIONS
             ],
             PlugChoiceDelayedChargingTimestampSensor(entry),
+            PlugChoiceChargingScheduleSensor(coordinator, entry, hass.data[DOMAIN][entry.entry_id]["schedule_manager"]),
         ]
     )
 
@@ -216,6 +218,88 @@ class PlugChoiceSensor(CoordinatorEntity[PlugChoiceDataUpdateCoordinator], Senso
             return last_session.get("stop_reason") if last_session else None
 
         return None
+
+
+class PlugChoiceChargingScheduleSensor(
+    CoordinatorEntity[PlugChoiceDataUpdateCoordinator], SensorEntity
+):
+    """Expose the saved plan and its hourly energy split."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Charging Schedule"
+    _attr_icon = "mdi:chart-bar"
+
+    def __init__(
+        self,
+        coordinator: PlugChoiceDataUpdateCoordinator,
+        entry: ConfigEntry,
+        manager: ChargingScheduleManager,
+    ) -> None:
+        super().__init__(coordinator)
+        self._manager = manager
+        self._attr_unique_id = f"{entry.entry_id}_charging_schedule"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.data["charger_uuid"])},
+            name=entry.title,
+            manufacturer="PlugChoice",
+            model="EV Charger",
+        )
+
+    @property
+    def suggested_object_id(self) -> str:
+        return "charging_schedule"
+
+    @property
+    def native_value(self) -> str:
+        plan = self._manager.plan
+        if plan is None:
+            return "not_created"
+        return "feasible" if plan.get("feasible") else "infeasible"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        plan = self._manager.plan
+        if plan is None:
+            return {}
+        return {
+            "required_kwh": plan.get("required_kwh"),
+            "max_available_kwh": plan.get("max_available_kwh"),
+            "solar_kwh": plan.get("solar_kwh"),
+            "grid_kwh": plan.get("grid_kwh"),
+            "deadline": plan.get("deadline"),
+            "direct_charging": plan.get("direct_charging"),
+            "error": plan.get("error"),
+            "schedule": plan.get("schedule", []),
+            "hourly_energy": plan.get("hourly_energy", []),
+            "schedule_text": _format_schedule_text(plan),
+        }
+
+
+def _format_schedule_text(plan: dict[str, Any]) -> str:
+    """Format scheduled slots as a concise, dashboard-friendly list."""
+    if not plan.get("feasible"):
+        return (
+            f"Niet haalbaar: {plan.get('error')}. "
+            f"Benodigd {plan.get('required_kwh', 0):.2f} kWh; "
+            f"maximaal beschikbaar {plan.get('max_available_kwh', 0):.2f} kWh."
+        )
+    slots = plan.get("schedule", [])
+    if not slots:
+        return "Er zijn geen laadmomenten gepland."
+    return "\n".join(
+        "- {time}: {energy:.2f} kWh, {amps} A, zon {solar:.2f} kWh, "
+        "net {grid:.2f} kWh, {duration:.0f} min".format(
+            time=datetime.fromisoformat(slot["recommended_start"]).strftime(
+                "%d-%m %H:%M"
+            ),
+            energy=slot["charge_kwh"],
+            amps=slot["ampere"],
+            solar=slot["solar_kwh"],
+            grid=slot["grid_kwh"],
+            duration=slot["duration_min"],
+        )
+        for slot in slots
+    )
 
 
 def _map_status(status: str | None) -> str | None:

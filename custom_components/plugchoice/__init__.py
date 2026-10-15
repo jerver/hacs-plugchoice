@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import timedelta
 
 import aiohttp
@@ -18,6 +19,7 @@ from .const import (
     CONF_API_KEY,
     CONF_CHARGER_UUID,
     CONF_SCAN_INTERVAL,
+    CONF_TEST_MODE,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     API_BASE_URL,
@@ -34,15 +36,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     charger_uuid = entry.data[CONF_CHARGER_UUID]
 
     session = async_get_clientsession(hass)
-    api = PlugChoiceAPI(session, api_key, charger_uuid)
+    test_mode = bool(entry.options.get(CONF_TEST_MODE, False))
+    api = PlugChoiceAPI(
+        session,
+        api_key,
+        charger_uuid,
+        test_mode=test_mode,
+        test_mode_provider=lambda: bool(entry.options.get(CONF_TEST_MODE, False)),
+    )
 
-    # Validate credentials
-    try:
-        await api.get_charger()
-    except PlugChoiceAuthError as err:
-        raise ConfigEntryAuthFailed(err) from err
-    except PlugChoiceError as err:
-        raise ConfigEntryNotReady(err) from err
+    if not test_mode:
+        try:
+            await api.get_charger()
+        except PlugChoiceAuthError as err:
+            raise ConfigEntryAuthFailed(err) from err
+        except PlugChoiceError as err:
+            raise ConfigEntryNotReady(err) from err
 
     coordinator = PlugChoiceDataUpdateCoordinator(hass, entry, api)
     await coordinator.async_config_entry_first_refresh()
@@ -51,6 +60,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "coordinator": coordinator,
         "api": api,
     }
+
+    from .charging import ChargingScheduleManager
+
+    schedule_manager = ChargingScheduleManager(hass, entry, api, coordinator)
+    await schedule_manager.async_load()
+    hass.data[DOMAIN][entry.entry_id]["schedule_manager"] = schedule_manager
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -67,6 +82,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
+        hass.data[DOMAIN][entry.entry_id]["schedule_manager"].async_unload()
         hass.data[DOMAIN].pop(entry.entry_id)
     return unload_ok
 
@@ -89,6 +105,14 @@ class PlugChoiceDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> dict:
         """Fetch data from the API."""
+        if self.api.test_mode:
+            return {
+                "charger": {"connection_status": "test_mode", "connectors": []},
+                "active_transaction": None,
+                "meter_value": None,
+                "power_usage": None,
+                "last_session": None,
+            }
         try:
             charger = await self.api.get_charger()
             active_transaction = await self.api.get_active_transaction()
@@ -116,6 +140,10 @@ class PlugChoiceAuthError(PlugChoiceError):
     """Authentication error."""
 
 
+class PlugChoiceTestModeError(PlugChoiceError):
+    """Raised when an API request is attempted while test mode is enabled."""
+
+
 class PlugChoiceAPI:
     """Client for the PlugChoice REST API."""
 
@@ -124,21 +152,35 @@ class PlugChoiceAPI:
         session: aiohttp.ClientSession,
         api_key: str,
         charger_uuid: str,
+        *,
+        test_mode: bool = False,
+        test_mode_provider: Callable[[], bool] | None = None,
     ) -> None:
         """Initialize the API client."""
         self._session = session
         self._api_key = api_key
         self._charger_uuid = charger_uuid
+        self._test_mode = test_mode
+        self._test_mode_provider = test_mode_provider
         self._headers = {
             "Authorization": f"Bearer {api_key}",
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
 
+    @property
+    def test_mode(self) -> bool:
+        """Return the current test-mode state."""
+        if self._test_mode_provider is not None:
+            return self._test_mode_provider()
+        return self._test_mode
+
     async def _request(
         self, method: str, path: str, **kwargs
     ) -> dict | list:
         """Make an authenticated API request."""
+        if self.test_mode:
+            raise PlugChoiceTestModeError("PlugChoice API is disabled in test mode")
         url = f"{API_BASE_URL}{path}"
         try:
             async with async_timeout.timeout(15):

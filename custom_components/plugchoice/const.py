@@ -15,3 +15,16 @@ MAX_SCAN_INTERVAL = 3600
 
 CONF_CONNECTOR_ID = "connector_id"
 DEFAULT_CONNECTOR_ID = 1
+
+CONF_DISTANCE_KM = "distance_km"
+CONF_EFFICIENCY_KM_PER_KWH = "efficiency_km_per_kwh"
+CONF_DEADLINE = "charging_deadline"
+CONF_DIRECT_CHARGING = "direct_charging"
+CONF_MIN_SOLAR_KWH = "min_solar_kwh"
+CONF_TEST_MODE = "test_mode"
+
+SOLCAST_FORECAST_ENTITIES = (
+	"sensor.solcast_pv_forecast_voorspelling_vandaag",
+	"sensor.solcast_pv_forecast_voorspelling_morgen",
+	"sensor.solcast_pv_forecast_voorspelling_dag_3",
+)

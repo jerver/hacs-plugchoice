@@ -27,12 +27,21 @@
     }
   },
   "options": {
+    "error": {
+      "invalid_input": "Enter a positive value and a deadline in the future."
+    },
     "step": {
       "init": {
         "title": "PlugChoice – Options",
         "data": {
           "scan_interval": "Poll interval (seconds)",
-          "connector_id": "Connector ID"
+          "connector_id": "Connector ID",
+          "distance_km": "Required driving distance (km)",
+          "efficiency_km_per_kwh": "Vehicle efficiency (km/kWh)",
+          "charging_deadline": "Charging deadline",
+          "direct_charging": "Charge immediately",
+          "min_solar_kwh": "Minimum solar forecast per hour (kWh)",
+          "test_mode": "Test mode (disable all PlugChoice API traffic)"
         }
       }
     }
