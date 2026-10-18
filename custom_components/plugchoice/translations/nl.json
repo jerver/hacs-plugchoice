@@ -39,7 +39,7 @@
           "distance_km": "Gewenste afstand (km)",
           "efficiency_km_per_kwh": "Verbruik auto (km/kWh)",
           "charging_deadline": "Uiterste laadtijd",
-          "direct_charging": "Direct laden",
+          "direct_charging": "Direct laden in schema",
           "min_solar_kwh": "Minimale zonneproductie per uur (kWh)",
           "test_mode": "Testmodus (blokkeer alle PlugChoice API-verzoeken)"
         }

@@ -18,6 +18,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import (
     CONF_API_KEY,
     CONF_CHARGER_UUID,
+    CONF_CONNECTOR_ID,
     CONF_SCAN_INTERVAL,
     CONF_TEST_MODE,
     DEFAULT_SCAN_INTERVAL,
@@ -27,7 +28,14 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BUTTON, Platform.BINARY_SENSOR, Platform.SWITCH, Platform.TIME]
+PLATFORMS: list[Platform] = [
+    Platform.SENSOR,
+    Platform.BUTTON,
+    Platform.BINARY_SENSOR,
+    Platform.SWITCH,
+    Platform.NUMBER,
+    Platform.DATETIME,
+]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -59,6 +67,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "coordinator": coordinator,
         "api": api,
+        "options_snapshot": dict(entry.options),
     }
 
     from .charging import ChargingScheduleManager
@@ -74,15 +83,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload the entry when options change."""
-    await hass.config_entries.async_reload(entry.entry_id)
+    """Reload only when options affect the coordinator or API setup."""
+    data = hass.data[DOMAIN].get(entry.entry_id)
+    if data is None:
+        return
+    previous = data.get("options_snapshot", {})
+    current = dict(entry.options)
+    data["options_snapshot"] = current
+    reload_keys = (CONF_CONNECTOR_ID, CONF_SCAN_INTERVAL, CONF_TEST_MODE)
+    if any(previous.get(key) != current.get(key) for key in reload_keys):
+        await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        hass.data[DOMAIN][entry.entry_id]["schedule_manager"].async_unload()
         hass.data[DOMAIN].pop(entry.entry_id)
     return unload_ok
 
@@ -245,13 +261,76 @@ class PlugChoiceAPI:
 
     async def start_charging(self, token_id: str, connector_id: int | None = None) -> dict:
         """Send a remote start transaction command."""
+        request = self.build_start_charging_request(token_id, connector_id)
+        return await self._request(
+            request["method"], request["path"], json=request["body"]
+        )
+
+    def build_start_charging_request(
+        self, token_id: str, connector_id: int | None = None
+    ) -> dict:
+        """Build the remote-start request without sending it."""
         payload: dict = {"id_token": token_id}
         if connector_id is not None:
             payload["connector_id"] = connector_id
-        return await self._request(
-            "POST",
-            f"/chargers/{self._charger_uuid}/actions/start",
-            json=payload,
+        return self._build_post_request(
+            f"/chargers/{self._charger_uuid}/actions/start", payload
+        )
+
+    async def set_charging_profile(
+        self, connector_id: int, charging_profile: dict
+    ) -> dict:
+        """Send a SetChargingProfile command to a connector."""
+        request = self.build_set_charging_profile_request(
+            connector_id, charging_profile
+        )
+        return await self._request(request["method"], request["path"], json=request["body"])
+
+    def build_set_charging_profile_request(
+        self, connector_id: int, charging_profile: dict
+    ) -> dict:
+        """Build the charging-profile request without sending it."""
+        return self._build_post_request(
+            f"/chargers/{self._charger_uuid}/actions/charging-profile",
+            {"connector_id": connector_id, "charging_profile": charging_profile},
+        )
+
+    async def clear_charging_profile(
+        self, connector_id: int, profile_id: int
+    ) -> dict:
+        """Clear charging profiles for a connector."""
+        request = self.build_clear_charging_profile_request(connector_id, profile_id)
+        return await self._request(request["method"], request["path"], json=request["body"])
+
+    def build_clear_charging_profile_request(
+        self, connector_id: int, profile_id: int
+    ) -> dict:
+        """Build the clear-profile request without sending it."""
+        return self._build_post_request(
+            f"/chargers/{self._charger_uuid}/actions/clear-charging-profile",
+            {"connector_id": connector_id, "id": profile_id},
+        )
+
+    async def get_composite_schedule(
+        self, connector_id: int, duration: int, charging_rate_unit: str = "A"
+    ) -> dict:
+        """Fetch the composite charging schedule from a connector."""
+        request = self.build_composite_schedule_request(
+            connector_id, duration, charging_rate_unit
+        )
+        return await self._request(request["method"], request["path"], json=request["body"])
+
+    def build_composite_schedule_request(
+        self, connector_id: int, duration: int, charging_rate_unit: str = "A"
+    ) -> dict:
+        """Build the composite-schedule request without sending it."""
+        return self._build_post_request(
+            f"/chargers/{self._charger_uuid}/actions/composite-schedule",
+            {
+                "connector_id": connector_id,
+                "duration": duration,
+                "charging_rate_unit": charging_rate_unit,
+            },
         )
 
     async def get_last_session(self) -> dict | None:
@@ -266,11 +345,25 @@ class PlugChoiceAPI:
 
     async def stop_charging(self, transaction_id: int | None = None) -> dict:
         """Send a remote stop transaction command."""
+        request = self.build_stop_charging_request(transaction_id)
+        return await self._request(
+            request["method"], request["path"], json=request["body"]
+        )
+
+    def build_stop_charging_request(self, transaction_id: int | None = None) -> dict:
+        """Build the remote-stop request without sending it."""
         payload: dict = {}
         if transaction_id is not None:
             payload["transaction_id"] = transaction_id
-        return await self._request(
-            "POST",
-            f"/chargers/{self._charger_uuid}/actions/stop",
-            json=payload,
+        return self._build_post_request(
+            f"/chargers/{self._charger_uuid}/actions/stop", payload
         )
+
+    def _build_post_request(self, path: str, body: dict) -> dict:
+        """Describe a POST request for sending or test-mode display."""
+        return {
+            "method": "POST",
+            "path": path,
+            "url": f"{API_BASE_URL}{path}",
+            "body": body,
+        }

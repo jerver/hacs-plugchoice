@@ -85,19 +85,10 @@ def build_schedule(
         }
         remaining -= energy
 
-    if not direct and remaining > 0:
-        for slot in sorted(selected.values(), key=lambda item: -item["window"]["solar_kwh"]):
-            if remaining <= 0 or slot["amps"] >= 16:
-                continue
-            window = slot["window"]
-            extra_capacity = (16 - slot["amps"]) * KW_PER_AMP * _window_hours(window)
-            extra = min(remaining, extra_capacity)
-            slot["energy"] += extra
-            slot["amps"] = 16
-            remaining -= extra
-
     if remaining > 0:
-        for window in windows:
+        for window in sorted(
+            windows, key=lambda item: (item["solar_kwh"], item["start"])
+        ):
             if remaining <= 0 or window["period_start"] in selected:
                 continue
             energy = min(remaining, MAX_CHARGING_KW * _window_hours(window))
@@ -111,6 +102,20 @@ def build_schedule(
             }
             remaining -= energy
 
+    if not direct and remaining > 0:
+        for slot in sorted(
+            selected.values(),
+            key=lambda item: (item["window"]["solar_kwh"], item["window"]["start"]),
+        ):
+            if remaining <= 0 or slot["amps"] >= 16:
+                continue
+            window = slot["window"]
+            extra_capacity = (16 - slot["amps"]) * KW_PER_AMP * _window_hours(window)
+            extra = min(remaining, extra_capacity)
+            slot["energy"] += extra
+            slot["amps"] = 16
+            remaining -= extra
+
     schedule = [
         _make_slot(
             slot["window"],
@@ -120,6 +125,8 @@ def build_schedule(
         )
         for slot in sorted(selected.values(), key=lambda item: item["window"]["start"])
     ]
+    hourly_energy = _hourly_energy(windows, schedule)
+    schedule = _merge_adjacent_slots(schedule)
     solar_total = sum(slot["solar_kwh"] for slot in schedule)
     grid_total = sum(slot["grid_kwh"] for slot in schedule)
     return {
@@ -130,8 +137,42 @@ def build_schedule(
         "solar_kwh": round(solar_total, 3),
         "grid_kwh": round(grid_total, 3),
         "schedule": schedule,
-        "hourly_energy": _hourly_energy(windows, schedule),
+        "hourly_energy": hourly_energy,
     }
+
+
+def _merge_adjacent_slots(schedule: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Combine contiguous schedule slots with the same charging current."""
+    slots = sorted(
+        schedule,
+        key=lambda slot: datetime.fromisoformat(slot["recommended_start"]),
+    )
+    merged: list[dict[str, Any]] = []
+    previous_end: datetime | None = None
+    for slot in slots:
+        next_start = datetime.fromisoformat(slot["recommended_start"])
+        slot_end = next_start + timedelta(minutes=slot["duration_min"])
+        if merged and merged[-1]["ampere"] == slot["ampere"]:
+            previous = merged[-1]
+            if previous_end is not None and abs(
+                (next_start - previous_end).total_seconds()
+            ) <= 3:
+                previous["duration_min"] = round(
+                    previous["duration_min"] + slot["duration_min"], 1
+                )
+                for energy_key in ("charge_kwh", "solar_kwh", "grid_kwh"):
+                    previous[energy_key] = round(
+                        previous[energy_key] + slot[energy_key], 3
+                    )
+                previous["solar_pct"] = round(
+                    previous["solar_kwh"] / previous["charge_kwh"] * 100, 1
+                )
+                previous["full_hour"] = previous["duration_min"] >= 59
+                previous_end = slot_end
+                continue
+        merged.append(dict(slot))
+        previous_end = slot_end
+    return merged
 
 
 def _hourly_energy(
@@ -145,13 +186,20 @@ def _hourly_energy(
     for window in windows:
         period_start = window["period_start"].astimezone(PLAN_TIMEZONE)
         slot = scheduled_by_start.get(period_start)
+        charge_kwh = slot["charge_kwh"] if slot else 0.0
+        ampere = slot["ampere"] if slot else 0
+        solar_kwh = slot["solar_kwh"] if slot else 0.0
+        solar_ampere = ampere * solar_kwh / charge_kwh if charge_kwh else 0.0
         hourly.append(
             {
                 "period_start": period_start.isoformat(),
                 "pv_forecast_kwh": window["solar_kwh"],
-                "solar_kwh": slot["solar_kwh"] if slot else 0.0,
+                "solar_kwh": solar_kwh,
                 "grid_kwh": slot["grid_kwh"] if slot else 0.0,
-                "charge_kwh": slot["charge_kwh"] if slot else 0.0,
+                "charge_kwh": charge_kwh,
+                "solar_ampere": solar_ampere,
+                "grid_ampere": ampere - solar_ampere,
+                "ampere": ampere,
             }
         )
     return hourly
@@ -207,7 +255,8 @@ def _window_hours(window: dict[str, Any]) -> float:
 
 
 def _amps_for_solar(solar_kwh: float) -> int:
-    return max(6, min(16, round(solar_kwh / KW_PER_AMP)))
+    estimated_amps = max(6, min(16, solar_kwh / KW_PER_AMP))
+    return min((6, 8, 10, 13, 16), key=lambda amps: abs(amps - estimated_amps))
 
 
 def _make_slot(

@@ -20,6 +20,8 @@ CONF_DISTANCE_KM = "distance_km"
 CONF_EFFICIENCY_KM_PER_KWH = "efficiency_km_per_kwh"
 CONF_DEADLINE = "charging_deadline"
 CONF_DIRECT_CHARGING = "direct_charging"
+CONF_DIRECT_CHARGING_AMP = "direct_charging_amp"
+DEFAULT_DIRECT_CHARGING_AMP = 16
 CONF_MIN_SOLAR_KWH = "min_solar_kwh"
 CONF_TEST_MODE = "test_mode"
 

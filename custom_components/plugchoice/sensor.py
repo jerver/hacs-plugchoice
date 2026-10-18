@@ -1,9 +1,9 @@
 """Sensor platform for PlugChoice."""
 from __future__ import annotations
 
-from collections.abc import Callable
+import json
 from dataclasses import dataclass
-from datetime import datetime, time as dt_time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -14,13 +14,10 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import entity_registry as er
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_point_in_time, async_track_state_change_event
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.util import dt as dt_util
 
 from .const import CONF_CONNECTOR_ID, DEFAULT_CONNECTOR_ID, DOMAIN
 from . import PlugChoiceDataUpdateCoordinator
@@ -113,8 +110,22 @@ async def async_setup_entry(
                 PlugChoiceSensor(coordinator, entry, description)
                 for description in SENSOR_DESCRIPTIONS
             ],
-            PlugChoiceDelayedChargingTimestampSensor(entry),
             PlugChoiceChargingScheduleSensor(coordinator, entry, hass.data[DOMAIN][entry.entry_id]["schedule_manager"]),
+            *[
+                PlugChoicePlannedEnergySensor(
+                    coordinator,
+                    entry,
+                    hass.data[DOMAIN][entry.entry_id]["schedule_manager"],
+                    key,
+                    name,
+                    icon,
+                )
+                for key, name, icon in (
+                    ("planned_charge_kwh", "Geplande laadenergie", "mdi:ev-station"),
+                    ("planned_solar_kwh", "Geplande zonne-energie", "mdi:solar-power"),
+                    ("planned_grid_kwh", "Geplande netenergie", "mdi:transmission-tower-import"),
+                )
+            ],
         ]
     )
 
@@ -259,20 +270,86 @@ class PlugChoiceChargingScheduleSensor(
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         plan = self._manager.plan
-        if plan is None:
-            return {}
-        return {
-            "required_kwh": plan.get("required_kwh"),
-            "max_available_kwh": plan.get("max_available_kwh"),
-            "solar_kwh": plan.get("solar_kwh"),
-            "grid_kwh": plan.get("grid_kwh"),
-            "deadline": plan.get("deadline"),
-            "direct_charging": plan.get("direct_charging"),
-            "error": plan.get("error"),
-            "schedule": plan.get("schedule", []),
-            "hourly_energy": plan.get("hourly_energy", []),
-            "schedule_text": _format_schedule_text(plan),
+        attributes: dict[str, Any] = {
+            "composite_schedule_text": _format_composite_schedule(
+                self._manager.composite_schedule
+            ),
+            "test_mode_message_text": (
+                json.dumps(
+                    self._manager.test_mode_message,
+                    indent=2,
+                    ensure_ascii=False,
+                )
+                if self._manager.test_mode_message is not None
+                else "Nog geen testbericht. Zet Test Mode aan en druk op een actieknop."
+            ),
         }
+        if self._manager.test_mode_message is not None:
+            attributes["test_mode_message"] = self._manager.test_mode_message
+        if plan is not None:
+            attributes.update(
+                {
+                    "required_kwh": plan.get("required_kwh"),
+                    "max_available_kwh": plan.get("max_available_kwh"),
+                    "solar_kwh": plan.get("solar_kwh"),
+                    "grid_kwh": plan.get("grid_kwh"),
+                    "deadline": plan.get("deadline"),
+                    "direct_charging": plan.get("direct_charging"),
+                    "error": plan.get("error"),
+                    "schedule": plan.get("schedule", []),
+                    "hourly_energy": plan.get("hourly_energy", []),
+                    "schedule_text": _format_schedule_text(plan),
+                }
+            )
+        return attributes
+
+
+class PlugChoicePlannedEnergySensor(
+    CoordinatorEntity[PlugChoiceDataUpdateCoordinator], SensorEntity
+):
+    """Expose one planned energy total as a standalone sensor."""
+
+    _attr_has_entity_name = True
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self,
+        coordinator: PlugChoiceDataUpdateCoordinator,
+        entry: ConfigEntry,
+        manager: ChargingScheduleManager,
+        key: str,
+        name: str,
+        icon: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._manager = manager
+        self._key = key
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_unique_id = f"{entry.entry_id}_{key}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.data["charger_uuid"])},
+            name=entry.title,
+            manufacturer="PlugChoice",
+            model="EV Charger",
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the plan's total scheduled, solar, or grid energy."""
+        plan = self._manager.plan
+        if not plan or not plan.get("feasible"):
+            return None
+        if self._key == "planned_charge_kwh":
+            return round(
+                sum(slot.get("charge_kwh", 0) for slot in plan.get("schedule", [])),
+                3,
+            )
+        if self._key == "planned_solar_kwh":
+            return plan.get("solar_kwh")
+        return plan.get("grid_kwh")
 
 
 def _format_schedule_text(plan: dict[str, Any]) -> str:
@@ -300,6 +377,74 @@ def _format_schedule_text(plan: dict[str, Any]) -> str:
         )
         for slot in slots
     )
+
+
+def _format_composite_schedule(schedule: dict[str, Any] | None) -> str:
+    """Format the charger-computed schedule as readable time periods."""
+    if not schedule:
+        return "Nog geen laadschema van de laadpaal opgevraagd."
+
+    response = schedule.get("data", schedule)
+    charging_schedule = response.get("chargingSchedule") or response.get(
+        "charging_schedule", {}
+    )
+    if not isinstance(charging_schedule, dict):
+        return "De laadpaal gaf geen geldig laadschema terug."
+
+    status = response.get("status")
+    if status and status != "Accepted":
+        return f"Laadschema niet geaccepteerd: {status}."
+
+    raw_periods = charging_schedule.get("chargingSchedulePeriod") or charging_schedule.get(
+        "charging_schedule_period", []
+    )
+    periods = []
+    for period in raw_periods:
+        try:
+            offset = int(period.get("startPeriod", period.get("start_period")))
+            limit = float(period["limit"])
+        except (AttributeError, KeyError, TypeError, ValueError):
+            continue
+        phases = period.get("numberPhases", period.get("number_phases"))
+        periods.append((offset, limit, phases))
+
+    if not periods:
+        return "De laadpaal heeft geen laadperioden teruggegeven."
+    periods.sort(key=lambda period: period[0])
+
+    base_time = _parse_timestamp(
+        response.get("scheduleStart")
+        or response.get("schedule_start")
+        or charging_schedule.get("startSchedule")
+        or charging_schedule.get("start_schedule")
+    )
+    try:
+        duration = int(charging_schedule.get("duration", 0))
+    except (TypeError, ValueError):
+        duration = 0
+    unit = charging_schedule.get("chargingRateUnit") or charging_schedule.get(
+        "charging_rate_unit", "A"
+    )
+
+    lines = [f"Status: {status}"] if status else []
+    for index, (offset, limit, phases) in enumerate(periods):
+        end_offset = (
+            periods[index + 1][0]
+            if index + 1 < len(periods)
+            else duration
+        )
+        if base_time is not None and end_offset > offset:
+            start_text = (base_time + timedelta(seconds=offset)).strftime("%d-%m %H:%M")
+            end_text = (base_time + timedelta(seconds=end_offset)).strftime("%d-%m %H:%M")
+            interval = f"{start_text} - {end_text}"
+        else:
+            interval = f"vanaf +{offset // 60} min"
+        limit_text = "geen laden" if limit == 0 else f"{limit:g} {unit}"
+        if phases:
+            limit_text += f", {phases} fasen"
+        lines.append(f"- {interval}: {limit_text}")
+
+    return "\n".join(lines)
 
 
 def _map_status(status: str | None) -> str | None:
@@ -357,93 +502,6 @@ def _parse_timestamp(value: str | None) -> datetime | None:
         return None
 
 
-class PlugChoiceDelayedChargingTimestampSensor(SensorEntity):
-    """Sensor exposing the next occurrence of the delayed charging start time as a timestamp.
-
-    This sensor has device_class TIMESTAMP so it can be used directly in an
-    automation time trigger via ``at: sensor.plugchoice_starttijd_uitgesteld_laden``.
-    After each occurrence fires it automatically rolls over to the following day.
-    """
-
-    _attr_has_entity_name = True
-    _attr_name = "Starttijd uitgesteld laden"
-    _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _attr_icon = "mdi:clock-time-eight"
-    _attr_should_poll = False
-
-    def __init__(self, entry: ConfigEntry) -> None:
-        self._entry = entry
-        self._attr_unique_id = f"{entry.entry_id}_starttijd_uitgesteld_laden_ts"
-        charger_uuid = entry.data["charger_uuid"]
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, charger_uuid)},
-            name=entry.title,
-            manufacturer="PlugChoice",
-            model="EV Charger",
-        )
-        self._next_occurrence: datetime | None = None
-        self._cancel_refresh: Callable[[], None] | None = None
-
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        self.async_on_remove(self._cancel_pending_refresh)
-        time_entity_id = self._get_time_entity_id()
-        if time_entity_id:
-            self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass, [time_entity_id], self._handle_time_entity_change
-                )
-            )
-            state = self.hass.states.get(time_entity_id)
-            if state and state.state not in ("unknown", "unavailable"):
-                self._compute_and_schedule(state.state)
-
-    def _get_time_entity_id(self) -> str | None:
-        """Look up the companion time entity via the entity registry."""
-        registry = er.async_get(self.hass)
-        return registry.async_get_entity_id(
-            "time", DOMAIN, f"{self._entry.entry_id}_starttijd_uitgesteld_laden"
-        )
-
-    @callback
-    def _handle_time_entity_change(self, event: Any) -> None:
-        new_state = event.data.get("new_state")
-        if new_state and new_state.state not in ("unknown", "unavailable"):
-            self._compute_and_schedule(new_state.state)
-            self.async_write_ha_state()
-
-    def _compute_and_schedule(self, time_state: str) -> None:
-        """Compute the next occurrence datetime and schedule a roll-over refresh."""
-        try:
-            t = dt_time.fromisoformat(time_state)
-        except ValueError:
-            return
-        now = dt_util.now()
-        candidate = datetime.combine(now.date(), t, tzinfo=now.tzinfo)
-        if candidate <= now:
-            candidate += timedelta(days=1)
-        self._next_occurrence = candidate
-        self._schedule_refresh(candidate)
-
-    def _schedule_refresh(self, occurrence: datetime) -> None:
-        """Schedule a state update 2 s after the occurrence so the trigger rolls over."""
-        if self._cancel_refresh is not None:
-            self._cancel_refresh()
-        refresh_at = occurrence + timedelta(seconds=2)
-
-        @callback
-        def _do_refresh(_now: datetime) -> None:
-            self._cancel_refresh = None
-            time_entity_id = self._get_time_entity_id()
-            if time_entity_id:
-                state = self.hass.states.get(time_entity_id)
-                if state and state.state not in ("unknown", "unavailable"):
-                    self._compute_and_schedule(state.state)
-            self.async_write_ha_state()
-
-        self._cancel_refresh = async_track_point_in_time(
-            self.hass, _do_refresh, refresh_at
-        )
 
     def _cancel_pending_refresh(self) -> None:
         if self._cancel_refresh is not None:
