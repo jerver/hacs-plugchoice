@@ -1,6 +1,7 @@
 """Persistent charging plan lifecycle and automatic execution."""
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta, timezone
 from typing import Any
 
@@ -30,6 +31,8 @@ from .schedule import PLAN_TIMEZONE
 
 TX_DEFAULT_PROFILE_ID = 1
 TX_PROFILE_ID = 2
+TRANSACTION_ID_RETRIES = 5
+TRANSACTION_ID_RETRY_DELAY = 1
 
 class ChargingScheduleManager:
     """Create, persist, expose, and execute a charging schedule."""
@@ -114,11 +117,9 @@ class ChargingScheduleManager:
             self.entry.data[CONF_TOKEN_ID], connector_id
         )
         if self.api.test_mode:
+            fake_transaction_id = 0
             profile = _build_charging_profile(
-                self.plan,
-                TX_PROFILE_ID,
-                dt_util.now(),
-                "<transaction_id returned by start>",
+                self.plan, TX_PROFILE_ID, dt_util.now(), fake_transaction_id
             )
             profile_request = self.api.build_set_charging_profile_request(
                 connector_id, profile
@@ -126,16 +127,33 @@ class ChargingScheduleManager:
             self.test_mode_message = {
                 "actions": [
                     {"action": "start_charging", "request": start_request},
+                    {
+                        "action": "get_active_transaction",
+                        "params": {"filter[status]": "active", "limit": 1},
+                        "retries": TRANSACTION_ID_RETRIES,
+                    },
                     {"action": "set_charging_profile", "request": profile_request},
                 ]
             }
             return
 
         self.test_mode_message = None
-        start_response = await self.api.start_charging(
+        await self.api.start_charging(
             token_id=self.entry.data[CONF_TOKEN_ID], connector_id=connector_id
         )
-        transaction_id = _extract_transaction_id(start_response)
+        transaction_id = None
+        for attempt in range(TRANSACTION_ID_RETRIES + 1):
+            if transaction_id is not None:
+                break
+            if attempt:
+                await asyncio.sleep(TRANSACTION_ID_RETRY_DELAY)
+            active_transaction = await self.api.get_active_transaction()
+            transaction_id = _extract_transaction_id(active_transaction)
+        if transaction_id is None:
+            raise HomeAssistantError(
+                "No active charging session found: the active transaction "
+                f"response did not contain an ID after {TRANSACTION_ID_RETRIES} retries"
+            )
         profile = _build_charging_profile(
             self.plan, TX_PROFILE_ID, dt_util.now(), transaction_id
         )
@@ -338,11 +356,17 @@ def _build_charging_profile(
     }
 
 
-def _extract_transaction_id(response: dict[str, Any]) -> int:
-    """Read the transaction ID from common start-response payload shapes."""
+def _extract_transaction_id(response: dict[str, Any] | None) -> int | None:
+    """Read a transaction ID from common API response payload shapes."""
+    if not isinstance(response, dict):
+        return None
     payload = response.get("data", response)
     if isinstance(payload, dict):
-        transaction_id = payload.get("transaction_id", payload.get("transactionId"))
+        transaction_id = payload.get("id")
+        if transaction_id is None:
+            transaction_id = payload.get(
+                "transaction_id", payload.get("transactionId")
+            )
         if transaction_id is None and isinstance(payload.get("transaction"), dict):
             transaction_id = payload["transaction"].get("id")
         if transaction_id is not None:
@@ -350,9 +374,9 @@ def _extract_transaction_id(response: dict[str, Any]) -> int:
                 return int(transaction_id)
             except (TypeError, ValueError) as err:
                 raise HomeAssistantError(
-                    "The start response contains an invalid transaction ID"
+                    "The API response contains an invalid transaction ID"
                 ) from err
-    raise HomeAssistantError("The start response did not contain a transaction ID")
+    return None
 
 
 def _build_default_charging_profile(

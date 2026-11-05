@@ -231,12 +231,12 @@ class PlugChoiceAPI:
         transactions = result if isinstance(result, list) else result.get("data", [])
         return transactions[0] if transactions else None
 
-    async def get_latest_meter_value(self) -> dict | None:
-        """Fetch the latest meter value from connector 1."""
+    async def get_latest_meter_value(self, connector_id: int = 1) -> dict | None:
+        """Fetch the latest meter value from a connector."""
         try:
             result = await self._request(
                 "GET",
-                f"/chargers/{self._charger_uuid}/connectors/1/latest-metervalue",
+                f"/chargers/{self._charger_uuid}/connectors/{connector_id}/latest-metervalue",
             )
             _LOGGER.debug("latest-metervalue response: %s", result)
             return result
