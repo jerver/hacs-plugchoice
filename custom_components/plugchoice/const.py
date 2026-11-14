@@ -4,7 +4,7 @@ DOMAIN = "plugchoice"
 
 CONF_API_KEY = "api_key"
 CONF_CHARGER_UUID = "charger_uuid"
-CONF_TOKEN_ID = "token_id"
+CONF_LAADPAS_UID = "laadpas_uid"
 
 API_BASE_URL = "https://app.plugchoice.com/api/v3"
 
@@ -24,6 +24,7 @@ CONF_DIRECT_CHARGING_AMP = "direct_charging_amp"
 DEFAULT_DIRECT_CHARGING_AMP = 16
 CONF_MIN_SOLAR_KWH = "min_solar_kwh"
 CONF_TEST_MODE = "test_mode"
+CONF_LAADPAS_UID = "laadpas_uid"
 
 SOLCAST_FORECAST_ENTITIES = (
 	"sensor.solcast_pv_forecast_voorspelling_vandaag",

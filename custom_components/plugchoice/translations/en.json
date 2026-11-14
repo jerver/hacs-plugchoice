@@ -10,10 +10,10 @@
       },
       "charger": {
         "title": "PlugChoice – Select Charger",
-        "description": "Select the charger to monitor and the default RFID token used to authorise charging sessions.",
+        "description": "Select the charger to monitor and the laadpas UID (RFID card number) used to authorise charging sessions.",
         "data": {
           "charger_uuid": "Charger",
-          "token_id": "Default Token / RFID ID"
+          "laadpas_uid": "Laadpas UID (RFID card number)"
         }
       }
     },
@@ -41,7 +41,8 @@
           "charging_deadline": "Charging deadline",
           "direct_charging": "Direct charging in schedule",
           "min_solar_kwh": "Minimum solar forecast per hour (kWh)",
-          "test_mode": "Test mode (disable all PlugChoice API traffic)"
+          "test_mode": "Test mode (disable all PlugChoice API traffic)",
+          "laadpas_uid": "Laadpas UID (RFID card number)"
         }
       }
     }

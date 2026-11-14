@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from math import ceil
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -9,7 +10,9 @@ from homeassistant.util import dt as dt_util
 
 PLAN_TIMEZONE = ZoneInfo("Europe/Amsterdam")
 KW_PER_AMP = 230 / 1000
-MAX_CHARGING_KW = 16 * KW_PER_AMP
+MIN_CHARGING_AMP = 6
+MAX_CHARGING_AMP = 16
+MAX_CHARGING_KW = MAX_CHARGING_AMP * KW_PER_AMP
 
 
 def build_schedule(
@@ -72,7 +75,7 @@ def build_schedule(
     for window in ordered_windows:
         if remaining <= 0:
             break
-        amps = 16 if direct else _amps_for_solar(window["solar_kwh"])
+        amps = MAX_CHARGING_AMP if direct else _amps_for_solar(window["solar_kwh"])
         capacity = amps * KW_PER_AMP * _window_hours(window)
         energy = min(remaining, capacity)
         if energy <= 0:
@@ -96,7 +99,7 @@ def build_schedule(
                 continue
             selected[window["period_start"]] = {
                 "window": window,
-                "amps": 16,
+                "amps": MAX_CHARGING_AMP,
                 "energy": energy,
                 "phase": 3,
             }
@@ -107,13 +110,17 @@ def build_schedule(
             selected.values(),
             key=lambda item: (item["window"]["solar_kwh"], item["window"]["start"]),
         ):
-            if remaining <= 0 or slot["amps"] >= 16:
+            if remaining <= 0 or slot["amps"] >= MAX_CHARGING_AMP:
                 continue
             window = slot["window"]
-            extra_capacity = (16 - slot["amps"]) * KW_PER_AMP * _window_hours(window)
+            extra_capacity = (
+                (MAX_CHARGING_AMP - slot["amps"])
+                * KW_PER_AMP
+                * _window_hours(window)
+            )
             extra = min(remaining, extra_capacity)
             slot["energy"] += extra
-            slot["amps"] = 16
+            slot["amps"] = MAX_CHARGING_AMP
             remaining -= extra
 
     schedule = [
@@ -255,8 +262,10 @@ def _window_hours(window: dict[str, Any]) -> float:
 
 
 def _amps_for_solar(solar_kwh: float) -> int:
-    estimated_amps = max(6, min(16, solar_kwh / KW_PER_AMP))
-    return min((6, 8, 10, 13, 16), key=lambda amps: abs(amps - estimated_amps))
+    estimated_amps = max(
+        MIN_CHARGING_AMP, min(MAX_CHARGING_AMP, ceil(solar_kwh / KW_PER_AMP))
+    )
+    return estimated_amps
 
 
 def _make_slot(

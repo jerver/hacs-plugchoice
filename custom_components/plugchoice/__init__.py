@@ -367,3 +367,14 @@ class PlugChoiceAPI:
             "url": f"{API_BASE_URL}{path}",
             "body": body,
         }
+
+    def build_list_transactions_request(
+        self, params: dict | None = None
+    ) -> dict:
+        """Build the list-transactions request without sending it."""
+        return {
+            "method": "GET",
+            "path": f"/chargers/{self._charger_uuid}/transactions",
+            "url": f"{API_BASE_URL}/chargers/{self._charger_uuid}/transactions",
+            "params": params or {},
+        }

@@ -34,10 +34,10 @@ from .const import (
     CONF_DIRECT_CHARGING,
     CONF_DISTANCE_KM,
     CONF_EFFICIENCY_KM_PER_KWH,
+    CONF_LAADPAS_UID,
     CONF_MIN_SOLAR_KWH,
     CONF_TEST_MODE,
     CONF_SCAN_INTERVAL,
-    CONF_TOKEN_ID,
     DEFAULT_CONNECTOR_ID,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -107,7 +107,7 @@ class PlugChoiceConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_charger(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Let the user pick a charger and set the default token ID."""
+        """Let the user pick a charger and set the laadpas UID."""
         errors: dict[str, str] = {}
 
         charger_options = [
@@ -120,7 +120,7 @@ class PlugChoiceConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             charger_uuid = user_input[CONF_CHARGER_UUID]
-            token_id = user_input[CONF_TOKEN_ID].strip()
+            laadpas_uid = user_input[CONF_LAADPAS_UID].strip()
 
             # Ensure we don't create a duplicate entry for the same charger
             await self.async_set_unique_id(charger_uuid)
@@ -141,7 +141,7 @@ class PlugChoiceConfigFlow(ConfigFlow, domain=DOMAIN):
                 data={
                     CONF_API_KEY: self._api_key,
                     CONF_CHARGER_UUID: charger_uuid,
-                    CONF_TOKEN_ID: token_id,
+                    CONF_LAADPAS_UID: laadpas_uid,
                 },
             )
 
@@ -155,14 +155,14 @@ class PlugChoiceConfigFlow(ConfigFlow, domain=DOMAIN):
                             mode=SelectSelectorMode.DROPDOWN,
                         )
                     ),
-                    vol.Required(CONF_TOKEN_ID): TextSelector(
+                    vol.Required(CONF_LAADPAS_UID): TextSelector(
                         TextSelectorConfig(type=TextSelectorType.TEXT)
                     ),
                 }
             ),
             errors=errors,
             description_placeholders={
-                "token_help": "Enter the RFID token/card ID used to authorize charging sessions."
+                "token_help": "Enter the RFID token/card ID (laadpas UID) used to authorize charging sessions."
             },
         )
 
@@ -266,5 +266,11 @@ class PlugChoiceOptionsFlowHandler(OptionsFlow):
             vol.Optional(
                 CONF_TEST_MODE, default=current.get(CONF_TEST_MODE, False)
             ): BooleanSelector(),
+            vol.Optional(
+                CONF_LAADPAS_UID,
+                default=current.get(CONF_LAADPAS_UID, self._config_entry.data.get(CONF_LAADPAS_UID, ""))
+            ): TextSelector(
+                TextSelectorConfig(type=TextSelectorType.TEXT)
+            ),
         }
         return vol.Schema(schema)

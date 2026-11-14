@@ -20,7 +20,7 @@ from .const import (
     CONF_MIN_SOLAR_KWH,
     CONF_CONNECTOR_ID,
     CONF_DIRECT_CHARGING_AMP,
-    CONF_TOKEN_ID,
+    CONF_LAADPAS_UID,
     DEFAULT_CONNECTOR_ID,
     DEFAULT_DIRECT_CHARGING_AMP,
     DOMAIN,
@@ -52,6 +52,10 @@ class ChargingScheduleManager:
         self.composite_schedule: dict[str, Any] | None = None
         self.test_mode_message: dict[str, Any] | None = None
         self._store = Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_charging_plan")
+
+    def _get_token_id(self) -> str:
+        """Get the laadpas UID to use for charging, preferring options over config entry data."""
+        return self.entry.options.get(CONF_LAADPAS_UID) or self.entry.data[CONF_LAADPAS_UID]
 
     async def async_load(self) -> None:
         """Restore the latest calculated plan."""
@@ -105,31 +109,28 @@ class ChargingScheduleManager:
 
     async def async_start_optimal_charge(self) -> None:
         """Start a session, then apply the saved schedule to its transaction."""
-        if self.plan is None:
-            raise HomeAssistantError("Calculate a charging plan before starting optimal charging")
-        if not self.plan.get("feasible"):
-            raise HomeAssistantError("The calculated charging plan is not feasible")
+        self._validate_plan_for_application()
 
         connector_id = int(
             self.entry.options.get(CONF_CONNECTOR_ID, DEFAULT_CONNECTOR_ID)
         )
+        token_id = self._get_token_id()
         start_request = self.api.build_start_charging_request(
-            self.entry.data[CONF_TOKEN_ID], connector_id
+            token_id, connector_id
         )
         if self.api.test_mode:
             fake_transaction_id = 0
-            profile = _build_charging_profile(
-                self.plan, TX_PROFILE_ID, dt_util.now(), fake_transaction_id
-            )
-            profile_request = self.api.build_set_charging_profile_request(
-                connector_id, profile
+            profile_request = self._build_plan_profile_request(
+                connector_id, fake_transaction_id
             )
             self.test_mode_message = {
                 "actions": [
                     {"action": "start_charging", "request": start_request},
                     {
                         "action": "get_active_transaction",
-                        "params": {"filter[status]": "active", "limit": 1},
+                        "request": self.api.build_list_transactions_request(
+                            {"filter[status]": "active", "limit": 1}
+                        ),
                         "retries": TRANSACTION_ID_RETRIES,
                     },
                     {"action": "set_charging_profile", "request": profile_request},
@@ -139,25 +140,78 @@ class ChargingScheduleManager:
 
         self.test_mode_message = None
         await self.api.start_charging(
-            token_id=self.entry.data[CONF_TOKEN_ID], connector_id=connector_id
+            token_id=token_id, connector_id=connector_id
         )
+        await self._async_apply_plan_to_active_transaction(connector_id)
+
+    async def async_reload_charging_plan(self) -> None:
+        """Apply the saved schedule to the currently active transaction."""
+        self._validate_plan_for_application()
+
+        connector_id = int(
+            self.entry.options.get(CONF_CONNECTOR_ID, DEFAULT_CONNECTOR_ID)
+        )
+        if self.api.test_mode:
+            profile_request = self._build_plan_profile_request(
+                connector_id, transaction_id=0
+            )
+            self.test_mode_message = {
+                "actions": [
+                    {
+                        "action": "get_active_transaction",
+                        "request": self.api.build_list_transactions_request(
+                            {"filter[status]": "active", "limit": 1}
+                        ),
+                        "retries": TRANSACTION_ID_RETRIES,
+                    },
+                    {"action": "set_charging_profile", "request": profile_request},
+                ]
+            }
+            return
+
+        self.test_mode_message = None
+        await self._async_apply_plan_to_active_transaction(connector_id)
+
+    def _validate_plan_for_application(self) -> None:
+        """Raise the established errors when no applicable plan is available."""
+        if self.plan is None:
+            raise HomeAssistantError(
+                "Calculate a charging plan before starting optimal charging"
+            )
+        if not self.plan.get("feasible"):
+            raise HomeAssistantError("The calculated charging plan is not feasible")
+
+    async def _async_apply_plan_to_active_transaction(
+        self, connector_id: int
+    ) -> None:
+        """Find the active transaction and apply the saved TxProfile to it."""
         transaction_id = None
         for attempt in range(TRANSACTION_ID_RETRIES + 1):
-            if transaction_id is not None:
-                break
             if attempt:
                 await asyncio.sleep(TRANSACTION_ID_RETRY_DELAY)
             active_transaction = await self.api.get_active_transaction()
             transaction_id = _extract_transaction_id(active_transaction)
+            if transaction_id is not None:
+                break
         if transaction_id is None:
             raise HomeAssistantError(
                 "No active charging session found: the active transaction "
                 f"response did not contain an ID after {TRANSACTION_ID_RETRIES} retries"
             )
+
         profile = _build_charging_profile(
             self.plan, TX_PROFILE_ID, dt_util.now(), transaction_id
         )
         await self.api.set_charging_profile(connector_id, profile)
+
+    def _build_plan_profile_request(
+        self, connector_id: int, transaction_id: int | str
+    ) -> dict[str, Any]:
+        """Build the request that applies the saved plan to one transaction."""
+        profile = _build_charging_profile(
+            self.plan, TX_PROFILE_ID, dt_util.now(), transaction_id
+        )
+        return self.api.build_set_charging_profile_request(connector_id, profile)
 
     async def async_start_direct_charge(self) -> None:
         """Start charging with the charger's default charging profile."""
@@ -167,8 +221,9 @@ class ChargingScheduleManager:
         self.plan = None
         await self._store.async_remove()
 
+        token_id = self._get_token_id()
         start_request = self.api.build_start_charging_request(
-            self.entry.data[CONF_TOKEN_ID], connector_id
+            token_id, connector_id
         )
         profile = _build_default_charging_profile(
             TX_DEFAULT_PROFILE_ID,
@@ -194,7 +249,7 @@ class ChargingScheduleManager:
         self.test_mode_message = None
         await self.api.set_charging_profile(connector_id, profile)
         await self.api.start_charging(
-            token_id=self.entry.data[CONF_TOKEN_ID], connector_id=connector_id
+            token_id=token_id, connector_id=connector_id
         )
 
     async def async_set_direct_charging_amp(self, ampere: float) -> None:

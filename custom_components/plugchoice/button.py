@@ -43,6 +43,7 @@ async def async_setup_entry(
             ),
             PlugChoiceCreatePlanButton(entry),
             PlugChoiceStartOptimalButton(entry),
+            PlugChoiceReloadScheduleButton(entry),
             PlugChoiceCancelPlanButton(entry),
             PlugChoiceGetCompositeScheduleButton(entry, api),
         ]
@@ -121,6 +122,24 @@ class PlugChoiceStartOptimalButton(ButtonEntity):
     async def async_press(self) -> None:
         manager = self.hass.data[DOMAIN][self._entry.entry_id]["schedule_manager"]
         await manager.async_start_optimal_charge()
+        manager.coordinator.async_set_updated_data(manager.coordinator.data)
+
+
+class PlugChoiceReloadScheduleButton(ButtonEntity):
+    """Button to reapply the saved schedule to an active charging transaction."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Herladen laadschema"
+    _attr_icon = "mdi:calendar-refresh"
+
+    def __init__(self, entry: ConfigEntry) -> None:
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_reload_charging_schedule"
+        self._attr_device_info = _device_info(entry)
+
+    async def async_press(self) -> None:
+        manager = self.hass.data[DOMAIN][self._entry.entry_id]["schedule_manager"]
+        await manager.async_reload_charging_plan()
         manager.coordinator.async_set_updated_data(manager.coordinator.data)
 
 

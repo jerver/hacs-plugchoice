@@ -10,10 +10,10 @@
       },
       "charger": {
         "title": "PlugChoice – Kies Laadpaal",
-        "description": "Selecteer de laadpaal die je wilt monitoren en het standaard RFID-token waarmee laadsessies worden geautoriseerd.",
+        "description": "Selecteer de laadpaal die je wilt monitoren en het laadpas UID (RFID kaartnummer) waarmee laadsessies worden geautoriseerd.",
         "data": {
           "charger_uuid": "Laadpaal",
-          "token_id": "Standaard Token / RFID ID"
+          "laadpas_uid": "Laadpas UID (RFID kaartnummer)"
         }
       }
     },
@@ -41,7 +41,8 @@
           "charging_deadline": "Uiterste laadtijd",
           "direct_charging": "Direct laden in schema",
           "min_solar_kwh": "Minimale zonneproductie per uur (kWh)",
-          "test_mode": "Testmodus (blokkeer alle PlugChoice API-verzoeken)"
+          "test_mode": "Testmodus (blokkeer alle PlugChoice API-verzoeken)",
+          "laadpas_uid": "Laadpas UID (RFID kaartnummer)"
         }
       }
     }
